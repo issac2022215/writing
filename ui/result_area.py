@@ -28,8 +28,6 @@ def render_result(keyword, content, style, word_count, emoji_level, model_name, 
     widget_key = str(st.session_state._widget_counter)
 
     st.markdown('---')
-    st.markdown(content)
-    st.markdown('---')
 
     col1, col2, col3 = st.columns(3)
 
