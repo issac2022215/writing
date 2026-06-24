@@ -16,3 +16,6 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# 历史数据库（本地生成，不提交）
+history.db
