@@ -6,7 +6,7 @@ import streamlit as st
 import storage
 
 
-def render_result(keyword, content, style, word_count, emoji_level, model_name):
+def render_result(keyword, content, style, word_count, emoji_level, model_name, record_id: int = 0):
     """渲染生成结果，包含复制和下载功能
 
     Args:
@@ -16,9 +16,16 @@ def render_result(keyword, content, style, word_count, emoji_level, model_name):
         word_count: 字数参数
         emoji_level: emoji 浓度参数
         model_name: 使用的模型
+        record_id: 已自动保存的记录 id，收藏按钮直接切换收藏状态
     """
     if not content:
         return
+
+    # 使用 session_state 计数器生成唯一 widget key，避免 hash() 跨会话不稳定
+    if '_widget_counter' not in st.session_state:
+        st.session_state._widget_counter = 0
+    st.session_state._widget_counter += 1
+    widget_key = str(st.session_state._widget_counter)
 
     st.markdown('---')
     st.markdown(content)
@@ -32,7 +39,7 @@ def render_result(keyword, content, style, word_count, emoji_level, model_name):
             '📥 下载', content,
             file_name=f'{keyword}_文案.md',
             mime='text/markdown',
-            key=f'dl_{hash(content)}',
+            key=f'dl_{widget_key}',
             use_container_width=True,
         )
 
@@ -42,28 +49,26 @@ def render_result(keyword, content, style, word_count, emoji_level, model_name):
             '📋 复制（下载TXT）', content,
             file_name=f'{keyword}_文案.txt',
             mime='text/plain',
-            key=f'copy_{hash(content)}',
+            key=f'copy_{widget_key}',
             use_container_width=True,
         )
 
-    # 收藏按钮
+    # 收藏按钮（不重复保存，直接切换已保存记录的收藏状态）
     with col3:
-        if f'fav_saved_{hash(content)}' not in st.session_state:
-            st.session_state[f'fav_saved_{hash(content)}'] = False
-
-        if st.button('⭐ 收藏', key=f'fav_{hash(content)}', use_container_width=True):
-            # 解析标题
-            titles = _extract_titles(content)
-            rid = storage.save(keyword, titles, content, style, word_count, emoji_level, model_name)
-            storage.toggle_favorite(rid)
-            st.session_state[f'fav_saved_{hash(content)}'] = True
-            st.toast('已收藏！可在侧边栏历史中查看', icon='⭐')
-
-    if st.session_state.get(f'fav_saved_{hash(content)}', False):
-        st.success('⭐ 已加入收藏')
+        if record_id > 0:
+            if st.button('⭐ 收藏', key=f'fav_{widget_key}', use_container_width=True):
+                storage.toggle_favorite(record_id)
+                st.toast('已收藏！可在侧边栏历史中查看', icon='⭐')
+        else:
+            # 兼容无 record_id 的场景（极少发生）
+            if st.button('⭐ 收藏', key=f'fav_{widget_key}', use_container_width=True):
+                titles = extract_titles(content)
+                rid = storage.save(keyword, titles, content, style, word_count, emoji_level, model_name)
+                storage.toggle_favorite(rid)
+                st.toast('已收藏！可在侧边栏历史中查看', icon='⭐')
 
 
-def _extract_titles(content):
+def extract_titles(content):
     """从 markdown 内容中提取标题列表"""
     titles = []
     for line in content.split('\n'):

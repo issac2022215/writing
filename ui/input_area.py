@@ -19,4 +19,15 @@ def render_input_area():
     with col2:
         button = st.button('✨ 生成', type='primary', key='input_generate_btn')
 
+    # 最近关键词快捷回看标签
+    recent = st.session_state.get('recent_keywords', [])
+    if recent:
+        st.caption('最近搜索：')
+        tag_cols = st.columns(len(recent))
+        for i, kw in enumerate(recent):
+            with tag_cols[i]:
+                if st.button(kw, key=f'recent_tag_{i}', use_container_width=True):
+                    st.session_state.input_keyword = kw
+                    st.rerun()
+
     return keyword, button

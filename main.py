@@ -95,19 +95,33 @@ if generate_btn and keyword.strip():
             sidebar_config['model_name'],
             messages,
         )
-        output = st.write_stream(gen)
+        output_parts = []
+
+        def _tracked_gen():
+            for chunk in gen:
+                output_parts.append(chunk)
+                yield chunk
+
+        output = st.write_stream(_tracked_gen())
 
         if output:
             # 自动保存到历史
-            from ui.result_area import _extract_titles
-            titles = _extract_titles(output)
-            storage.save(
+            from ui.result_area import extract_titles
+            titles = extract_titles(output)
+            record_id = storage.save(
                 keyword, titles, output,
                 sidebar_config['style'],
                 sidebar_config['word_count'],
                 sidebar_config['emoji_level'],
                 sidebar_config['model_name'],
             )
+            # 更新最近关键词列表（用于快捷回看）
+            if 'recent_keywords' not in st.session_state:
+                st.session_state.recent_keywords = []
+            if keyword not in st.session_state.recent_keywords:
+                st.session_state.recent_keywords.insert(0, keyword)
+                st.session_state.recent_keywords = st.session_state.recent_keywords[:6]
+
             # 渲染结果操作区
             render_result(
                 keyword, output,
@@ -115,6 +129,7 @@ if generate_btn and keyword.strip():
                 sidebar_config['word_count'],
                 sidebar_config['emoji_level'],
                 sidebar_config['model_name'],
+                record_id=record_id,
             )
 
     except AuthenticationError:
@@ -130,4 +145,7 @@ if generate_btn and keyword.strip():
         else:
             st.error(f'调用大模型时出错：{e}')
     except Exception as e:
+        # 流式中断 — 已累积的内容仍然显示给用户
+        if 'output_parts' in locals() and output_parts:
+            st.markdown(''.join(output_parts))
         st.warning(f'生成过程中出现异常：{e}')
