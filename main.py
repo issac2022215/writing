@@ -5,15 +5,18 @@
 import streamlit as st
 from openai import AuthenticationError, APITimeoutError, APIError
 
-import config
 from prompts import build_system_prompt
 from generator import generate_stream
+from ui.sidebar import render_sidebar
+from ui.input_area import render_input_area
+from ui.result_area import render_result
+import storage
 
 # ── 页面配置 ────────────────────────────────────────
 
 st.set_page_config(page_title='小红书爆款文案生成器', page_icon='🔥', layout='centered')
 
-# ── 按钮样式微调 ────────────────────────────────────
+# ── 按钮样式 ────────────────────────────────────────
 
 st.markdown(
     """
@@ -24,70 +27,96 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ── 侧边栏：API 配置 ────────────────────────────────
+# ── 侧边栏 ──────────────────────────────────────────
+
+sidebar_config = render_sidebar()
+
+# ── 侧边栏：历史记录 ────────────────────────────────
 
 with st.sidebar:
-    st.subheader('📡 API 配置')
-    vendor = st.radio('服务商', ['OpenAI', 'DeepSeek'], key='vendor')
-
-    if vendor == 'OpenAI':
-        base_url = config.OPENAI_BASE_URL
-        model_options = config.OPENAI_MODELS
-    else:
-        base_url = config.DEEPSEEK_BASE_URL
-        model_options = config.DEEPSEEK_MODELS
-
-    model_name = st.selectbox('模型', model_options, key='model')
-    api_key = st.text_input('API Key', type='password', key='api_key')
-
     st.divider()
+    st.subheader('📋 历史记录')
 
-    st.subheader('⚙️ 生成参数')
-    style = st.selectbox('风格', config.STYLE_OPTIONS,
-                         index=config.STYLE_OPTIONS.index(config.DEFAULT_STYLE), key='style')
-    word_count = st.radio('字数', list(config.WORD_COUNT_OPTIONS.keys()),
-                          index=list(config.WORD_COUNT_OPTIONS.keys()).index(config.DEFAULT_WORD_COUNT),
-                          horizontal=True, key='word_count')
-    emoji_level = st.radio('Emoji', config.EMOJI_LEVEL_OPTIONS,
-                           index=config.EMOJI_LEVEL_OPTIONS.index(config.DEFAULT_EMOJI_LEVEL),
-                           horizontal=True, key='emoji_level')
+    history_search = st.text_input('搜索历史...', key='history_search', placeholder='按关键词搜索')
+    records = storage.search(history_search, limit=30)
 
-# ── 主区域：输入区 ──────────────────────────────────
+    if not records:
+        st.caption('暂无历史记录')
+    else:
+        for rec in records:
+            fav_icon = '⭐ ' if rec['is_favorite'] else ''
+            label = f"{fav_icon}{rec['keyword']}"
+            col_rec, col_del = st.columns([5, 1])
+            with col_rec:
+                if st.button(label, key=f'hist_{rec["id"]}', use_container_width=True):
+                    st.session_state['viewing_history'] = rec
+            with col_del:
+                if st.button('🗑', key=f'del_{rec["id"]}'):
+                    storage.delete(rec['id'])
+                    st.rerun()
 
-st.write('## 小红书爆款文案生成器')
-col1, col2 = st.columns([4, 1])
-with col1:
-    keyword = st.text_input('请输入文案关键词：', key='keyword')
-with col2:
-    generate_btn = st.button('✨ 生成', type='primary', key='generate_btn')
+# ── 主区域 ──────────────────────────────────────────
 
-# ── API Key 校验 ────────────────────────────────────
+keyword, generate_btn = render_input_area()
 
-if not api_key:
+# 查看历史记录
+if 'viewing_history' in st.session_state and st.session_state.viewing_history:
+    rec = st.session_state.viewing_history
+    st.markdown('---')
+    st.info(f'📖 正在查看历史记录：**{rec["keyword"]}**（{rec["created_at"]}）')
+    st.markdown(rec['content'])
+    if st.button('❌ 关闭', key='close_history'):
+        del st.session_state['viewing_history']
+        st.rerun()
+    st.stop()
+
+# API Key 校验
+if not sidebar_config['api_key']:
     st.error('请提供访问大模型需要的 API Key！！！')
     st.stop()
 
 # ── 生成逻辑 ────────────────────────────────────────
 
 if generate_btn and keyword.strip():
-    system_prompt = build_system_prompt(style, word_count, emoji_level)
+    system_prompt = build_system_prompt(
+        sidebar_config['style'],
+        sidebar_config['word_count'],
+        sidebar_config['emoji_level'],
+    )
     messages = [
         {'role': 'system', 'content': system_prompt},
         {'role': 'user', 'content': keyword},
     ]
 
     try:
-        st.markdown('---')
-        gen = generate_stream(base_url, api_key, model_name, messages)
+        gen = generate_stream(
+            sidebar_config['base_url'],
+            sidebar_config['api_key'],
+            sidebar_config['model_name'],
+            messages,
+        )
         output = st.write_stream(gen)
+
         if output:
-            st.markdown('---')
-            col_a, col_b, col_c = st.columns(3)
-            with col_a:
-                st.download_button(
-                    '📋 下载文案', output, file_name=f'{keyword}_文案.md',
-                    mime='text/markdown', key='download_btn', use_container_width=True
-                )
+            # 自动保存到历史
+            from ui.result_area import _extract_titles
+            titles = _extract_titles(output)
+            storage.save(
+                keyword, titles, output,
+                sidebar_config['style'],
+                sidebar_config['word_count'],
+                sidebar_config['emoji_level'],
+                sidebar_config['model_name'],
+            )
+            # 渲染结果操作区
+            render_result(
+                keyword, output,
+                sidebar_config['style'],
+                sidebar_config['word_count'],
+                sidebar_config['emoji_level'],
+                sidebar_config['model_name'],
+            )
+
     except AuthenticationError:
         st.error('API Key 校验失败，请检查是否正确填写')
     except APITimeoutError:
