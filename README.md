@@ -2,7 +2,7 @@
 
 基于 Streamlit 的小红书爆款文案自动生成工具，接入 OpenAI 和 DeepSeek 大语言模型，输入关键词即可一键生成符合小红书风格的标题和正文。
 
-🌐 **在线体验**：[[writingagent.streamlit.app](https://writingagent.streamlit.app/)]
+🌐 **在线体验**：[[writing001.streamlit.app](https://writing001.streamlit.app/)]
 
 ## 功能特点
 
